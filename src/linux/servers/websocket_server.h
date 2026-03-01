@@ -5,12 +5,16 @@
 #include <future>
 
 class websocket_server {
-	static void run_server(std::condition_variable& locker, int port);
+	static void run_server(int port);
 
 public:
 	static void launch(int port);
 
 	static void send_packet(const std::shared_ptr<packet>& packet);
+
+	static bool has_connection();
+
+	static void wait_for_connection();
 
 	static void tick();
 

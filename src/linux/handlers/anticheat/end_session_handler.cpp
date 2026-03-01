@@ -9,7 +9,7 @@
 void end_session_handler::handle(std::shared_ptr<packet> packet) {
 	auto end_session = std::static_pointer_cast<end_session_packet>(packet);
 
-	static auto anticheat_interface = eos_platform::get_anticheat_client_interface();
+	auto anticheat_interface = eos_platform::get_anticheat_client_interface();
 	if (anticheat_interface == NULL) {
 		PLOGF.printf("Could not retrieve anticheat client interface");
 		return;
@@ -17,9 +17,10 @@ void end_session_handler::handle(std::shared_ptr<packet> packet) {
 
 	EOS_AntiCheatClient_EndSessionOptions options{};
 	options.ApiVersion = end_session->options.ApiVersion;
-	if (eos_anticheat::end_session(anticheat_interface, options) == EOS_Success) {
-		PLOGI.printf("AntiCheat session successfully began");
+	auto result = eos_anticheat::end_session(anticheat_interface, options);
+	if (result == EOS_Success) {
+		PLOGI.printf("AntiCheat session successfully ended");
 	} else {
-		PLOGE.printf("Failed to begin AntiCheat session!");
+		PLOGE.printf("Failed to end AntiCheat session (result=%d)", result);
 	}
 }

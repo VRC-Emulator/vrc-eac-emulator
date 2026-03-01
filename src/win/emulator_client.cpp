@@ -13,12 +13,12 @@ emulator_client::emulator_client(std::string address, int http_port) : address(a
 }
 
 void emulator_client::connect(int tcp_port) {
-	client.run(address, tcp_port);
-
 	sender = std::make_shared<packet_sender>(client.getWebsocketClient());
 	sender->start();
 	std::shared_ptr<packet_handler> handler = std::make_shared<client_packet_handler>(sender);
 	client.set_packet_handler(handler);
+
+	client.run(address, tcp_port);
 }
 
 void emulator_client::send_packet(std::shared_ptr<packet> packet) {

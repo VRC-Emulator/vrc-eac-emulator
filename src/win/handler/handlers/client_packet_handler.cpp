@@ -7,6 +7,7 @@
 #include "common/protocol/packets/handshake_packet.h"
 #include "common/protocol/packets/notify_message_to_server_packet.h"
 #include "plog/Log.h"
+#include "win/eos_impl/eos_anticheat_impl.h"
 #include "win/sock/packet_sender.h"
 
 client_packet_handler::client_packet_handler(std::weak_ptr<packet_sender> sender) : sender(sender) {
@@ -19,6 +20,7 @@ void client_packet_handler::on_connected() {
 	auto packet = std::make_shared<handshake_packet>();
 	packet->timestamp = std::time(nullptr);
 	send_packet(packet);
+	recreate_anticheat_session_if_needed();
 }
 
 handler_registry& client_packet_handler::get_handler_registry() {

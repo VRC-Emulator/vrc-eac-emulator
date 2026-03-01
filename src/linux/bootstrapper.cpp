@@ -21,6 +21,11 @@ int bootstrapper::Dummy_WinMain() {
 	http_server::run(http_port);
 
 	while (true) {
+		if (!websocket_server::has_connection()) {
+			websocket_server::wait_for_connection();
+			PLOGI.printf("Client reconnected. Resuming EOS loop");
+		}
+
 		Sleep(1000 / 30);  // emulate 30 fps
 
 		websocket_server::tick();

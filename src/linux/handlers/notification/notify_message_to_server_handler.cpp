@@ -24,7 +24,11 @@ void notify_message_to_server_callback(const EOS_AntiCheatClient_OnMessageToServ
 void notify_message_to_server_handler::handle(std::shared_ptr<packet> packet) {
 	auto notify_message_to_server = std::static_pointer_cast<notify_message_to_server_packet>(packet);
 
-	static auto anticheat_interface = eos_platform::get_anticheat_client_interface();
+	auto anticheat_interface = eos_platform::get_anticheat_client_interface();
+	if (anticheat_interface == NULL) {
+		PLOGF.printf("Could not retrieve anticheat client interface");
+		return;
+	}
 
 	EOS_AntiCheatClient_AddNotifyMessageToServerOptions options{};
 	options.ApiVersion = notify_message_to_server->options.ApiVersion;

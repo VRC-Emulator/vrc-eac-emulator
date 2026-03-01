@@ -31,8 +31,11 @@ void websocket_client::run(std::string const& server_address, int port) {
 	std::string wsAddress = std::format("ws://{}:{}", server_address, port);
 	PLOGI.printf("Connecting to the server: %s", wsAddress.c_str());
 
-	client.onopen = []() {
+	client.onopen = [this]() {
 		PLOGD.printf("Connection established!");
+		if (handler != nullptr) {
+			handler->on_connected();
+		}
 	};
 	client.onclose = []() {
 		PLOGD.printf("Connection closed");

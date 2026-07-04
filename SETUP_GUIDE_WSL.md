@@ -1,3 +1,6 @@
+> [!WARNING]
+> This guide is outdated and unsupported! Please DO NOT follow this guide.
+
 # WSL side
 
 ## Install Steam

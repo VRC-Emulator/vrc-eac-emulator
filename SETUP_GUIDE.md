@@ -1,3 +1,6 @@
+> [!WARNING]
+> This guide is outdated and unsupported! Please DO NOT follow this guide.
+
 # 1. Introduction
 
 You will need a software can host a virtual machine to run linux side of the this project.

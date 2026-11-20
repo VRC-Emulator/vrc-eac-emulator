@@ -34,11 +34,14 @@ MPROTECT_SIGNATURE = bytes.fromhex(
 # This helper builds the platform-specific executable path list. It remained
 # byte-identical across the two EAC builds used to derive and verify the
 # detector, while its image-relative address changed.
+#REPORT_HELPER_SIGNATURE = bytes.fromhex(
+#    "f30f1efa41574156415541544989f455534889fb4883ec48"
+#    "64488b042528000000488944243831c04c8d6c24184c8d7424204c89ef"
+#)
 REPORT_HELPER_SIGNATURE = bytes.fromhex(
-    "f30f1efa41574156415541544989f455534889fb4883ec48"
-    "64488b042528000000488944243831c04c8d6c24184c8d7424204c89ef"
+    "41574156415541544989f4554889fd534883ec48"
+    "64488b042528000000488944243831c0"
 )
-
 REPORT_HELPER_EPILOGUE_PREFIX = bytes.fromhex(
     "488b44243864482b0425280000007405e8"
 )
@@ -86,6 +89,83 @@ class ProcessMemory:
         if written != len(data):
             raise OSError(f"short write at {address:#x}: {written} of {len(data)} bytes")
 
+
+PROLOGUE_STARTS = (
+    bytes.fromhex("f30f1efa4157"),
+    bytes.fromhex("4157415641554154"),
+    bytes.fromhex("f30f1efa554889e5"),
+    bytes.fromhex("554889e5"),
+)
+
+
+def _valid_violation_entry_at(
+    memory: ProcessMemory,
+    address: int,
+    executable: list[Mapping],
+) -> tuple[int, str] | None:
+    try:
+        head = memory.read(address, 24)
+    except OSError:
+        return None
+    while head and head[0] == 0x90:
+        address += 1
+        try:
+            head = memory.read(address, 24)
+        except OSError:
+            return None
+    if len(head) < 23:
+        return None
+    if head.startswith(NATIVE_REPORT_SIGNATURE):
+        return address, "native prologue"
+    if head[0] == 0xE9:
+        target = address + 5 + struct.unpack_from("<i", head, 1)[0]
+        descriptor = (
+            head[5:7] == b"\x48\xb8"
+            and head[15:19] == b"\x49\x89\x84\x24"
+            and head[20:23] == b"\x01\x00\x00"
+        )
+        if address_in_mappings(target, executable) and descriptor:
+            return address, f"VM bridge to {target:#x}"
+    return None
+
+
+def find_report_helper_fallback(
+    memory: ProcessMemory,
+    executable: list[Mapping],
+    max_lookback: int = 0x300,
+) -> int:
+    candidates: list[int] = []
+    for mapping in executable:
+        data = memory.read(mapping.begin, mapping.end - mapping.begin)
+        start = 0
+        while True:
+            prefix = data.find(REPORT_HELPER_EPILOGUE_PREFIX, start)
+            if prefix < 0:
+                break
+            suffix = prefix + len(REPORT_HELPER_EPILOGUE_PREFIX) + 4
+            if data[suffix : suffix + len(REPORT_HELPER_EPILOGUE_SUFFIX)] == REPORT_HELPER_EPILOGUE_SUFFIX:
+                epilogue_end = suffix + len(REPORT_HELPER_EPILOGUE_SUFFIX)
+                entry_addr = mapping.begin + epilogue_end
+                if _valid_violation_entry_at(memory, entry_addr, executable) is not None:
+                    window_start = max(0, prefix - max_lookback)
+                    window = data[window_start:prefix]
+                    found_starts = []
+                    for rel in range(len(window) - 4):
+                        if rel > 0 and window[rel - 1] not in (0xC3, 0x90, 0xCC, 0x00):
+                            continue
+                        chunk = window[rel:]
+                        if any(chunk.startswith(p) for p in PROLOGUE_STARTS):
+                            found_starts.append(mapping.begin + window_start + rel)
+                    if len(found_starts) == 1:
+                        candidates.append(found_starts[0])
+            start = prefix + 1
+
+    if len(candidates) != 1:
+        addrs = ", ".join(f"{addr:#x}" for addr in candidates) or "none"
+        raise DetectionError(
+            f"report helper fallback is not unique ({len(candidates)} matches: {addrs})"
+        )
+    return candidates[0]
 
 def parse_maps(text: str) -> list[Mapping]:
     mappings = []
@@ -203,6 +283,9 @@ def report_entry_after_helper(
 
     entry = helper + matches[0]
     head = memory.read(entry, 24)
+    if head[0] == 0x90:
+        entry += 1
+        head = memory.read(entry, 24)
     if head.startswith(NATIVE_REPORT_SIGNATURE):
         return entry, "native prologue"
 
@@ -341,14 +424,29 @@ def install_patches(pid: int) -> tuple[int, int, str]:
     executable = executable_mappings(module)
     base = next(mapping.begin for mapping in module if mapping.offset == 0)
 
+    #for m in module:
+    #    print(f"{m.begin:#x}-{m.end:#x} {m.permissions} off={m.offset:#x} {m.path}", flush=True)
+    #mem_tmp = ProcessMemory(pid)
+    #with open("/tmp/eac_exec.bin", "wb") as f:
+    #    for m in executable:
+    #        f.write(mem_tmp.read(m.begin, m.end - m.begin))
+    #mem_tmp.close()
+    #print("dumped /tmp/eac_exec.bin", flush=True)
     memory = ProcessMemory(pid)
     try:
         wrapper = find_unique_pattern(
             memory, executable, MPROTECT_SIGNATURE, "mprotect wrapper"
         )
-        helper = find_unique_pattern(
-            memory, executable, REPORT_HELPER_SIGNATURE, "report helper"
-        )
+        try:
+            helper = find_unique_pattern(
+                memory, executable, REPORT_HELPER_SIGNATURE, "report helper"
+            )
+        except DetectionError as exc:
+            if "(0 matches: none)" not in str(exc):
+                raise
+            helper = find_report_helper_fallback(memory, executable)
+            print(f"report helper (fallback): {helper:#x}", flush=True)
+        
         report_entry, report_shape = report_entry_after_helper(
             memory, helper, executable
         )
